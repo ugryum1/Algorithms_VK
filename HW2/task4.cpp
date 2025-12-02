@@ -40,21 +40,24 @@ in              out
 */
 
 #include <iostream>
+#include <functional>
 
-// Дописать компаратор
-template <typename T>
+
+template <typename T, class Comparator = std::greater<T>>
 class AvlTree {
     struct Node {
-        Node(const T &data) : data(data), left(nullptr), right(nullptr), height(1) {}
+        Node(const T &data) : data(data), left(nullptr), right(nullptr),
+                              height(1), count(1) {}
 
         T data;
         Node *left;
         Node *right;
         size_t height;
+        size_t count; // количество узлов поддерева
     };
 
 public:
-    AvlTree() : root(nullptr) {}
+    AvlTree(Comparator comp = Comparator()) : root(nullptr), comp(comp) {}
 
     ~AvlTree(){
         destroyTree(root);
@@ -67,12 +70,12 @@ public:
     bool Has(const T &data) {
         Node *tmp = root;
         while (tmp) {
-            if (tmp->data == data) {
+            if (!comp(tmp->data, data) && !comp(data, tmp->data)) {
                 return true;
-            } else if (tmp->data < data) {
-                tmp = tmp->right;
-            } else {
+            } else if (comp(data, tmp->data)) {
                 tmp = tmp->left;
+            } else {
+                tmp = tmp->right;
             }
         }
 
@@ -83,7 +86,36 @@ public:
         root = deleteInternal(root, data);
     }
 
+    // найти позицию для вставки - сколько элементов больше данного
+    size_t GetPosition(const T &data) {
+        return getPosition(root, data);
+    }
+
+    // найти элемент по позиции
+    T GetByPosition(size_t position) {
+        return getByPosition(root, position);
+    }
+
+    // удалить элемент по позиции
+    void DeleteByPosition(size_t position) {
+        T data = GetByPosition(position);
+        Delete(data);
+    }
+
 private:
+    Node *root;
+    Comparator comp;
+
+    size_t getCount(Node *node) {
+        return node ? node->count : 0;
+    }
+
+    void fixCount(Node *node) {
+        if (node) {
+            node->count = getCount(node->left) + getCount(node->right) + 1;
+        }
+    }
+
     void destroyTree(Node *node) {
         if (node) {
             destroyTree(node->left);
@@ -92,52 +124,73 @@ private:
         }
     }
 
+    Node* findAndRemoveMin(Node *node, Node *&minNode) {
+        if (!node->left) {
+            minNode = node;
+            return node->right;
+        }
+
+        node->left = findAndRemoveMin(node->left, minNode);
+        fixCount(node);
+        return doBalance(node);
+    }
+
+    Node* findAndRemoveMax(Node *node, Node *&maxNode) {
+        if (!node->right) {
+            maxNode = node;
+            return node->left;
+        }
+
+        node->right = findAndRemoveMax(node->right, maxNode);
+        fixCount(node);
+        return doBalance(node);
+    }
+
+
     Node* deleteInternal(Node *node, const T &data) {
         if (!node) {
             return nullptr;
         }
 
-        if (node->data < data) {
-            node->right = deleteInternal(node->right, data);
-        } else if (node->data > data) {
+        if (comp(data, node->data)) {
             node->left = deleteInternal(node->left, data);
+        } else if (comp(node->data, data)) {
+            node->right = deleteInternal(node->right, data);
         } else {
             Node *left = node->left;
             Node *right = node->right;
 
             delete node;
 
-            if (!right)
+            if (!right) {
                 return left;
+            }
+            if (!left) {
+                return right;
+            }
 
-            // Поддерево, из которого берем элемент взамен удаляемого, выбираем на основе сравнения глубин.
+            // выбираем поддерево на основе сравнения глубин
             // (берем из более глубокого)
-
-            // findMin и removeMin объединить в один метод findAndRemoveMin/findAndRemoveMax
-            Node *min = findMin(right); // возвращает минимальный элемент в дереве
-            min->right = removeMin(right); // возвращает дерево, из которого удалили минимальный элемент
-            min->left = left;
-
-            return doBalance(min);
+            if (getHeight(left) > getHeight(right)) {
+                // берем максимальный элемент из левого поддерева
+                Node *maxNode = nullptr;
+                left = findAndRemoveMax(left, maxNode);
+                maxNode->left = left;
+                maxNode->right = right;
+                fixCount(maxNode);
+                return doBalance(maxNode);
+            } else {
+                // берем минимальный элемент из правого поддерева
+                Node *minNode = nullptr;
+                right = findAndRemoveMin(right, minNode);
+                minNode->right = right;
+                minNode->left = left;
+                fixCount(minNode);
+                return doBalance(minNode);
+            }
         }
 
-        return doBalance(node);
-    }
-
-    Node* findMin(Node *node) {
-        while (node->left) {
-            node = node->left;
-        }
-
-        return node;
-    }
-
-    Node* removeMin(Node *node) {
-        if (!node->left) {
-            return node->right;
-        }
-
-        node->left = removeMin(node->left);
+        fixCount(node);
         return doBalance(node);
     }
 
@@ -146,12 +199,13 @@ private:
             return new Node(data);
         }
 
-        if (node->data <= data) {
-            node->right = addInternal(node->right, data);
-        } else {
+        if (comp(data, node->data)) {
             node->left = addInternal(node->left, data);
+        } else {
+            node->right = addInternal(node->right, data);
         }
 
+        fixCount(node);
         return doBalance(node);
     }
 
@@ -160,7 +214,9 @@ private:
     }
 
     void fixHeight(Node *node) {
-        node->height = std::max(getHeight(node->left), getHeight(node->right)) + 1;
+        if (node) {
+            node->height = std::max(getHeight(node->left), getHeight(node->right)) + 1;
+        }
     }
 
     int getBalance(Node *node) {
@@ -173,6 +229,8 @@ private:
         tmp->left = node;
         fixHeight(node);
         fixHeight(tmp);
+        fixCount(node);
+        fixCount(tmp);
         return tmp;
     }
 
@@ -182,11 +240,19 @@ private:
         tmp->right = node;
         fixHeight(node);
         fixHeight(tmp);
+        fixCount(node);
+        fixCount(tmp);
         return tmp;
     }
 
     Node* doBalance(Node *node) {
+        if (!node) {
+            return nullptr;
+        }
+
         fixHeight(node);
+        fixCount(node);
+
         switch (getBalance(node)) {
             case 2:
                 if (getBalance(node->right) < 0) {
@@ -203,9 +269,63 @@ private:
         }
     }
 
-    Node *root;
+    // получить позицию элемента (сколько элементов больше него)
+    size_t getPosition(Node* node, const T& data) {
+    if (!node) {
+        return 0;
+    }
+
+    if (!comp(node->data, data) && !comp(data, node->data)) {
+        return getCount(node->left);
+    }
+    if (comp(data, node->data)) {
+        return getPosition(node->left, data);
+    } else {
+        return getCount(node->left) + 1 + getPosition(node->right, data);
+    }
+}
+
+    // получить элемент по позиции
+    T getByPosition(Node* node, size_t position) {
+        size_t leftCount = getCount(node->left);
+
+        if (position == leftCount) {
+            return node->data;
+        } else if (position < leftCount) {
+            return getByPosition(node->left, position);
+        } else {
+            return getByPosition(node->right, position - leftCount - 1);
+        }
+    }
 };
 
-int main(int argc, const char * argv[]) {
+// компаратор для сортировки по убыванию роста
+struct ReverseComparator {
+    bool operator()(int a, int b) const {
+        return a > b;
+    }
+};
+
+int main() {
+    int n;
+    std::cin >> n;
+
+    AvlTree<int, ReverseComparator> tree;
+    for (int i = 0; i < n; ++i) {
+        int command;
+        std::cin >> command;
+
+        if (command == 1) {
+            int x;
+            std::cin >> x;
+            size_t pos = tree.GetPosition(x);
+            std::cout << pos << std::endl;
+            tree.Add(x);
+        } else if (command == 2) {
+            int y;
+            std::cin >> y;
+            tree.DeleteByPosition(y);
+        }
+    }
     return 0;
 }
