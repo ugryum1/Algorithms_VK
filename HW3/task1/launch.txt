@@ -1,6 +1,6 @@
 Чтобы запустить программу:
 
-g++ main.cpp ListGraph.cpp IGraph.cpp MatrixGraph.cpp SetGraph.cpp ArcGraph.cpp -o graph
+g++ main.cpp ListGraph.cpp IGraph.cpp MatrixGraph.cpp SetGraph.cpp ArcGraph.cpp -o graph.out
 ./graph.out
 
 Ожидаемый вывод:
